@@ -24,6 +24,8 @@ public class Fractal : MonoBehaviour
 
     Matrix4x4[][] matrices;
 
+    ComputeBuffer[] matricesBuffers;
+
     static Vector3[] directions = {
         Vector3.up, Vector3.right, Vector3.left, Vector3.forward, Vector3.back
     };
@@ -39,14 +41,20 @@ public class Fractal : MonoBehaviour
             rotation = rotations[childIndex]
     };
 
-    void Awake()
+    static readonly int matricesId = Shader.PropertyToID("_Matrices");
+    static MaterialPropertyBlock propertyBlock;
+
+    void OnEnable()
     {
         parts = new FractalPart[depth][];
         matrices = new Matrix4x4[depth][];
+        matricesBuffers = new ComputeBuffer[depth];
+        int stride = 16 * 4;
         for (int i = 0, length = 1; i < parts.Length; i++, length *= 5)
         {
             parts[i] = new FractalPart[length];
             matrices[i] = new Matrix4x4[length];
+            matricesBuffers[i] = new ComputeBuffer(length, stride);
         }
 
         parts[0][0] = CreatePart(0);
@@ -60,6 +68,27 @@ public class Fractal : MonoBehaviour
                     levelParts[fpi + ci] = CreatePart(ci);
                 }
             }
+        }
+        propertyBlock ??= new MaterialPropertyBlock();
+    }
+
+    void OnDisable()
+    {
+        for (int i = 0; i < matricesBuffers.Length; i++)
+        {
+            matricesBuffers[i].Release();
+        }
+        parts = null;
+        matrices = null;
+        matricesBuffers = null;
+    }
+
+    void OnValidate()
+    {
+        if (parts != null && enabled)
+        {
+            OnDisable();
+            OnEnable();
         }
     }
 
@@ -97,6 +126,19 @@ public class Fractal : MonoBehaviour
                     part.worldPosition, part.worldRotation, scale * Vector3.one
                 );
             }
+        }
+
+        for (int i = 0; i < matricesBuffers.Length; i++)
+        {
+            matricesBuffers[i].SetData(matrices[i]);
+        }
+        var bounds = new Bounds(Vector3.zero, 3f * Vector3.one);
+        for (int i = 0; i < matricesBuffers.Length; i++)
+        {
+            ComputeBuffer buffer = matricesBuffers[i];
+            buffer.SetData(matrices[i]);
+            propertyBlock.SetBuffer(matricesId, buffer);
+            Graphics.DrawMeshInstancedProcedural(mesh, 0, material, bounds, buffer.count, propertyBlock);
         }
     }
 }
